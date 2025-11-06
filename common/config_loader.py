@@ -328,3 +328,93 @@ def _replace_env_variables(config: Any) -> Any:
             return os.getenv(var_name, config)
         return config
     return config
+
+
+# ================================================================================
+# Helper para proyectos que usan EnvYAML (energiafacilities, enervision)
+# ================================================================================
+
+
+def load_config_with_postgres_fallback(
+    config_path: str,
+    postgres_conn_id: Optional[str] = "postgres_default",
+    postgres_field_names: Optional[Dict[str, str]] = None
+) -> Dict[str, Any]:
+    """
+    Carga configuración desde YAML (con EnvYAML) y aplica fallback para PostgreSQL.
+
+    PRIORIDAD para campos de PostgreSQL:
+    1. Airflow Connection (si existe)
+    2. YAML con variables ${...} reemplazadas por ENV
+
+    Args:
+        config_path: Ruta al archivo YAML de configuración
+        postgres_conn_id: ID de la conexión PostgreSQL en Airflow
+        postgres_field_names: Mapeo de nombres de campos de Airflow → YAML
+                              Default: {"user": "user", "password": "password", ...}
+
+    Returns:
+        Diccionario completo de configuración con PostgreSQL actualizado
+
+    Example:
+        >>> from pathlib import Path
+        >>> config_path = Path(__file__).parent / "config" / "config_dev.yaml"
+        >>> config = load_config_with_postgres_fallback(str(config_path))
+    """
+    # Mapeo por defecto
+    if postgres_field_names is None:
+        postgres_field_names = {
+            "host": "host",
+            "port": "port",
+            "user": "user",
+            "password": "password",
+            "database": "database",
+        }
+
+    # Cargar configuración base desde YAML (con EnvYAML si está disponible)
+    try:
+        from envyaml import EnvYAML  # type: ignore
+        config = dict(EnvYAML(config_path, strict=False))
+        logger.debug(f"✓ Config cargado con EnvYAML desde {config_path}")
+    except ImportError:
+        # Fallback a YAML normal con reemplazo manual
+        config = load_from_yaml(config_path)
+        logger.debug(f"✓ Config cargado con PyYAML desde {config_path}")
+
+    # Aplicar fallback por campo para PostgreSQL
+    if postgres_conn_id:
+        postgres_from_yaml = config.get("postgres", {})
+
+        # Fuentes en orden de prioridad
+        sources = [
+            # 1. Airflow Connection (prioridad más alta)
+            ConfigSource(
+                f"Airflow Connection ({postgres_conn_id})",
+                lambda: load_from_airflow_connection(postgres_conn_id)
+            ),
+            # 2. YAML+ENV
+            ConfigSource(
+                "YAML+ENV",
+                lambda: postgres_from_yaml
+            ),
+        ]
+
+        # Construir config PostgreSQL con fallback
+        postgres_config = {}
+        for airflow_field, yaml_field in postgres_field_names.items():
+            for source in sources:
+                # Buscar con nombre de campo de Airflow
+                value = source.get(airflow_field)
+                if value is not None:
+                    postgres_config[yaml_field] = value
+                    break
+            else:
+                # Si no se encuentra, mantener valor del YAML
+                if yaml_field in postgres_from_yaml:
+                    postgres_config[yaml_field] = postgres_from_yaml[yaml_field]
+
+        if postgres_config:
+            config["postgres"] = postgres_config
+            logger.info(f"✓ PostgreSQL configurado con fallback desde {postgres_conn_id}")
+
+    return config

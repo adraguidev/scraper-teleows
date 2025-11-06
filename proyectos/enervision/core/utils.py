@@ -1,11 +1,18 @@
 from __future__ import annotations
 import logging
+import sys
 from envyaml import EnvYAML #type: ignore
 from pathlib import Path
 from dotenv import load_dotenv
 import os
 from core.exceptions import ConfigError #agregar las excepciones
 import json
+from typing import Optional
+
+# Agregar path para imports compartidos
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent))
+from common.config_loader import load_config_with_postgres_fallback
+
 def osraiz() -> str:
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -38,34 +45,57 @@ class ConfigError(Exception):
     """Excepción personalizada para errores de configuración."""
     pass
 
-def load_config(env: str | None = None) -> dict:
+def load_config(env: str | None = None, postgres_conn_id: Optional[str] = "postgres_enervision") -> dict:
     """
-    Carga un archivo YAML con soporte automático para variables de entorno .
+    Carga configuración desde YAML con FALLBACK POR CAMPO para PostgreSQL.
+
+    PRIORIDAD para campos de PostgreSQL (campo por campo):
+    1. Airflow Connection - Si un campo existe aquí, úsalo ✅
+    2. YAML con ${POSTGRES_USER} reemplazado por ENV
+
     Ejemplo de uso en el YAML:
         postgres:
           user: ${POSTGRES_USER}
           password: ${POSTGRES_PASS}
 
-    Si las variables existen en el entorno, se reemplazan automáticamente.
+    Args:
+        env: Entorno a cargar ('dev', 'staging', 'prod'). Default: ENV_MODE o 'dev'
+        postgres_conn_id: ID de conexión PostgreSQL en Airflow.
+                         Usar None para desarrollo local sin Airflow.
 
+    Returns:
+        Diccionario completo de configuración
+
+    Example:
+        >>> # En Airflow (usa Connection con fallback)
+        >>> config = load_config()
+        >>>
+        >>> # Desarrollo local (solo YAML + ENV)
+        >>> config = load_config(postgres_conn_id=None)
     """
     try:
         # Cargar variables del .env si existe (opcional)
-
         env_file = Path(__file__).resolve().parent.parent / ".env"
         if env_file.exists():
             load_dotenv(env_file, override=False)
         else:
             load_dotenv()
+
         env = env or os.getenv("ENV_MODE", "dev").lower()
         base_dir = Path(__file__).resolve().parent.parent
         config_path = base_dir / "config" / f"config_{env}.yaml"
-        
+
         if not os.path.exists(config_path):
             raise ConfigError(f"No existe el archivo de configuración: {config_path} - base dir: {base_dir}")
-        # Cargar YAML con envyaml (hace el reemplazo automático)
-        cfg = EnvYAML(config_path, strict=False)
-        return dict(cfg)
+
+        # Usar sistema de fallback por campo
+        config = load_config_with_postgres_fallback(
+            str(config_path),
+            postgres_conn_id=postgres_conn_id
+        )
+
+        logging.getLogger(__name__).info(f"✓ Configuración cargada desde {config_path} (env={env})")
+        return config
 
     except FileNotFoundError as e:
         raise ConfigError(f"No se encontró el archivo: {e}") from e
