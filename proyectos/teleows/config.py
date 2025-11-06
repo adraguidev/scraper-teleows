@@ -138,6 +138,79 @@ class TeleowsSettings:
     def from_mapping(cls, mapping: Dict[str, Any]) -> "TeleowsSettings":
         return _build_settings(dict(mapping))
 
+    @classmethod
+    def load_from_airflow(
+        cls,
+        conn_id: str = "teleows_portal",
+        variable_prefix: str = "TELEOWS_",
+        postgres_conn_id: Optional[str] = None,
+    ) -> "TeleowsSettings":
+        """
+        Carga configuración con prioridades correctas para entornos Airflow.
+
+        Orden de prioridad (de menor a mayor):
+        1. Variables de entorno (fallback)
+        2. settings.yaml (configuración base)
+        3. Airflow Variables (TELEOWS_*)
+        4. Airflow Connection (credenciales y extras)
+
+        Args:
+            conn_id: ID de la conexión en Airflow para credenciales de scraping
+            variable_prefix: Prefijo para variables de Airflow
+            postgres_conn_id: ID de conexión PostgreSQL (opcional, para contexto)
+
+        Returns:
+            TeleowsSettings configurado según prioridades
+
+        Example:
+            >>> # En un DAG de Airflow
+            >>> settings = TeleowsSettings.load_from_airflow()
+        """
+        raw_settings: Dict[str, Any] = {}
+
+        # 1. ENV (fallback)
+        raw_settings.update(_load_env_overrides())
+
+        # 2. YAML (base)
+        raw_settings.update(_load_settings_file())
+
+        # 3. Airflow Variables (TELEOWS_*)
+        try:
+            from airflow.sdk import Variable
+
+            for field, env_var in _ENV_FIELD_MAP.items():
+                var_name = f"{variable_prefix}{env_var}"
+                try:
+                    value = Variable.get(var_name)
+                    if value is not None:
+                        raw_settings[field] = value
+                except (KeyError, Exception):
+                    continue
+        except ImportError:
+            pass
+
+        # 4. Airflow Connection (prioridad más alta)
+        try:
+            from airflow.sdk.bases.hook import BaseHook
+
+            conn = BaseHook.get_connection(conn_id)
+
+            if conn.login:
+                raw_settings["username"] = conn.login
+            if conn.password:
+                raw_settings["password"] = conn.password
+
+            extras = getattr(conn, "extra_dejson", {}) or {}
+            if isinstance(extras, dict):
+                for field in _ENV_FIELD_MAP.keys():
+                    value = extras.get(field)
+                    if value is not None:
+                        raw_settings[field] = value
+        except Exception:
+            pass
+
+        return _build_settings(raw_settings)
+
 
 def _build_settings(raw_settings: Dict[str, Any]) -> TeleowsSettings:
     """Normaliza el diccionario recibido y instancia TeleowsSettings."""
@@ -233,25 +306,39 @@ def _replace_env_variables(config: Any) -> Any:
         return config
 
 
-def load_yaml_config(env: Optional[str] = None) -> Dict[str, Any]:
+def load_yaml_config(
+    env: Optional[str] = None,
+    postgres_conn_id: Optional[str] = "postgres_teleows"
+) -> Dict[str, Any]:
     """
-    Carga configuración completa desde settings.yaml con soporte para variables de entorno.
+    Carga configuración completa desde settings.yaml con soporte para variables de entorno
+    y Airflow Connections.
 
     A diferencia de TeleowsSettings (que solo carga campos específicos del scraper),
     esta función retorna TODO el contenido del YAML, útil para loaders que necesitan
     acceder a secciones adicionales como 'postgres', 'gde', etc.
 
+    Orden de prioridad para configuración PostgreSQL:
+    1. Airflow Connection (prioridad más alta)
+    2. Variables de entorno ${POSTGRES_HOST}
+    3. Valores por defecto del YAML
+
     Args:
         env: Perfil de entorno a cargar (default, production, etc.)
              Si no se especifica, usa TELEOWS_ENV o 'default'
+        postgres_conn_id: ID de la conexión PostgreSQL en Airflow.
+                         Si es None, no se consulta Airflow
 
     Returns:
         Diccionario con la configuración completa
 
     Example:
+        >>> # En Airflow (usa Connection automáticamente)
         >>> config = load_yaml_config()
         >>> postgres_config = config.get('postgres', {})
-        >>> gde_config = config.get('gde', {})
+        >>>
+        >>> # Fuera de Airflow (solo YAML + ENV)
+        >>> config = load_yaml_config(postgres_conn_id=None)
     """
     import logging
     logger = logging.getLogger(__name__)
@@ -260,37 +347,54 @@ def load_yaml_config(env: Optional[str] = None) -> Dict[str, Any]:
         env = env or os.getenv("TELEOWS_ENV", "default")
 
         if not SETTINGS_PATH.exists():
-            logger.error(f"No existe el archivo de configuración: {SETTINGS_PATH}")
-            raise FileNotFoundError(f"Archivo no encontrado: {SETTINGS_PATH}")
+            logger.warning(f"No existe settings.yaml en {SETTINGS_PATH}, usando valores por defecto")
+            config = {}
+        else:
+            try:
+                import yaml
+            except ImportError:
+                raise ImportError("PyYAML es requerido. Instala con: pip install pyyaml")
 
-        try:
-            import yaml
-        except ImportError:
-            raise ImportError("PyYAML es requerido. Instala con: pip install pyyaml")
+            with SETTINGS_PATH.open('r', encoding='utf-8') as file:
+                raw_config = yaml.safe_load(file) or {}
 
-        with SETTINGS_PATH.open('r', encoding='utf-8') as file:
-            raw_config = yaml.safe_load(file) or {}
+            if not isinstance(raw_config, dict):
+                raise RuntimeError("El archivo settings.yaml debe contener un mapeo.")
 
-        if not isinstance(raw_config, dict):
-            raise RuntimeError("El archivo settings.yaml debe contener un mapeo.")
+            # Obtener la sección del perfil
+            config = raw_config.get(env, raw_config)
 
-        # Obtener la sección del perfil
-        config = raw_config.get(env, raw_config)
+            if not isinstance(config, dict):
+                raise RuntimeError(
+                    f"La sección '{env}' de settings.yaml debe ser un objeto con pares clave/valor."
+                )
 
-        if not isinstance(config, dict):
-            raise RuntimeError(
-                f"La sección '{env}' de settings.yaml debe ser un objeto con pares clave/valor."
-            )
+            # Reemplazar variables de entorno
+            config = _replace_env_variables(config)
 
-        # Reemplazar variables de entorno
-        config = _replace_env_variables(config)
+        # Intentar sobreescribir PostgreSQL con Airflow Connection (prioridad más alta)
+        if postgres_conn_id:
+            try:
+                from airflow.sdk.bases.hook import BaseHook
+
+                conn = BaseHook.get_connection(postgres_conn_id)
+                postgres_from_airflow = {
+                    "host": conn.host or "localhost",
+                    "port": conn.port or 5432,
+                    "database": conn.schema or "postgres",
+                    "user": conn.login or "postgres",
+                    "password": conn.password or "",
+                }
+                config["postgres"] = postgres_from_airflow
+                logger.info(f"✓ Configuración PostgreSQL cargada desde Airflow Connection '{postgres_conn_id}'")
+            except ImportError:
+                logger.debug("Airflow no disponible, usando configuración de YAML/ENV")
+            except Exception as exc:
+                logger.warning(f"No se pudo cargar Connection '{postgres_conn_id}': {exc}")
 
         logger.debug(f"Configuración cargada desde perfil '{env}'")
         return config
 
-    except FileNotFoundError as e:
-        logger.error(f"No se encontró el archivo: {e}")
-        raise
     except Exception as e:
         logger.error(f"Error al cargar configuración: {e}")
         raise

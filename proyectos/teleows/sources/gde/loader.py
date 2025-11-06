@@ -13,24 +13,36 @@ logger = logging.getLogger(__name__)
 PathLike = Union[str, Path]
 
 
-def load_gde(filepath: Optional[PathLike] = None) -> dict:
+def load_gde(filepath: Optional[PathLike] = None, postgres_conn_id: Optional[str] = "postgres_teleows") -> dict:
     """
     Carga los datos extraídos de GDE hacia PostgreSQL.
+
+    Configuración de PostgreSQL con orden de prioridad:
+    1. Airflow Connection (postgres_conn_id) - prioridad más alta
+    2. Variables de entorno (${POSTGRES_HOST}, etc.)
+    3. settings.yaml (valores por defecto)
 
     Args:
         filepath: Ruta al archivo Excel descargado. Si no se proporciona,
                  se usa la configuración de settings.yaml
+        postgres_conn_id: ID de la conexión PostgreSQL en Airflow.
+                         Por defecto "postgres_teleows".
+                         Usar None para solo YAML + ENV (desarrollo local)
 
     Returns:
         Diccionario con el resultado de la carga (status, code, etl_msg)
 
     Example:
+        >>> # En Airflow (usa Connection automáticamente)
         >>> resultado = load_gde("./tmp/Console_GDE_export.xlsx")
         >>> print(resultado['etl_msg'])
+        >>>
+        >>> # Desarrollo local (sin Airflow)
+        >>> resultado = load_gde("./tmp/file.xlsx", postgres_conn_id=None)
     """
     try:
-        # Cargar configuraciones
-        config = load_yaml_config()
+        # Cargar configuraciones (consulta Airflow Connection si está disponible)
+        config = load_yaml_config(postgres_conn_id=postgres_conn_id)
         postgres_config = config.get("postgres", {})
         gde_config = config.get("gde", {})
 
