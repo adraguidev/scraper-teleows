@@ -1,7 +1,20 @@
 import os
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional
+
+# Agregar path para imports compartidos
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+
+from common.config_loader import (
+    ConfigSource,
+    build_config_from_sources,
+    load_from_airflow_connection,
+    load_from_airflow_variables,
+    load_from_yaml,
+    load_from_env,
+)
 
 BASE_DIR = Path(__file__).resolve().parent
 SETTINGS_PATH = BASE_DIR / "settings.yaml"
@@ -146,13 +159,17 @@ class TeleowsSettings:
         postgres_conn_id: Optional[str] = None,
     ) -> "TeleowsSettings":
         """
-        Carga configuración con prioridades correctas para entornos Airflow.
+        Carga configuración con FALLBACK POR CAMPO.
 
-        Orden de prioridad (de menor a mayor):
-        1. Variables de entorno (fallback)
-        2. settings.yaml (configuración base)
-        3. Airflow Variables (TELEOWS_*)
-        4. Airflow Connection (credenciales y extras)
+        PRIORIDAD (busca campo por campo en este orden):
+        1. Airflow Connection (si el campo existe aquí, úsalo)
+        2. Airflow Variables (si no está en Connection, búscalo aquí)
+        3. YAML (si no está en Variables, búscalo aquí)
+        4. ENV (si no está en YAML, búscalo aquí)
+        5. Default (si no está en ninguna fuente)
+
+        Ejemplo: Si 'username' está en Connection pero 'proxy' solo está en YAML,
+                 toma 'username' de Connection y 'proxy' de YAML.
 
         Args:
             conn_id: ID de la conexión en Airflow para credenciales de scraping
@@ -166,48 +183,57 @@ class TeleowsSettings:
             >>> # En un DAG de Airflow
             >>> settings = TeleowsSettings.load_from_airflow()
         """
-        raw_settings: Dict[str, Any] = {}
+        import logging
+        logger = logging.getLogger(__name__)
 
-        # 1. ENV (fallback)
-        raw_settings.update(_load_env_overrides())
+        # Definir fuentes en orden de prioridad (mayor a menor)
+        sources = [
+            # 1. Airflow Connection (prioridad más alta)
+            ConfigSource(
+                "Airflow Connection",
+                lambda: load_from_airflow_connection(
+                    conn_id,
+                    extra_fields=list(_ENV_FIELD_MAP.keys())
+                )
+            ),
+            # 2. Airflow Variables
+            ConfigSource(
+                "Airflow Variables",
+                lambda: load_from_airflow_variables(variable_prefix, _ENV_FIELD_MAP)
+            ),
+            # 3. YAML
+            ConfigSource(
+                "YAML",
+                lambda: load_from_yaml(str(SETTINGS_PATH), env_key=os.getenv("TELEOWS_ENV", "default"))
+            ),
+            # 4. ENV (menor prioridad)
+            ConfigSource(
+                "ENV",
+                lambda: load_from_env(_ENV_FIELD_MAP)
+            ),
+        ]
 
-        # 2. YAML (base)
-        raw_settings.update(_load_settings_file())
+        # Especificación de campos con defaults y transformaciones
+        fields_spec = {
+            "username": {"default": None, "required": True},
+            "password": {"default": None, "required": True},
+            "download_path": {"default": _default_download_path()},
+            "max_iframe_attempts": {"default": 60, "transform": int},
+            "max_status_attempts": {"default": 60, "transform": int},
+            "options_to_select": {"default": ["CM", "OPM"], "transform": _as_options},
+            "date_mode": {"default": 2, "transform": int},
+            "date_from": {"default": "2025-09-01"},
+            "date_to": {"default": "2025-09-10"},
+            "gde_output_filename": {"default": None},
+            "dynamic_checklist_output_filename": {"default": None},
+            "export_overwrite_files": {"default": True, "transform": lambda v: _as_bool(v, True)},
+            "proxy": {"default": None},
+            "headless": {"default": False, "transform": lambda v: _as_bool(v, False)},
+        }
 
-        # 3. Airflow Variables (TELEOWS_*)
-        try:
-            from airflow.sdk import Variable
-
-            for field, env_var in _ENV_FIELD_MAP.items():
-                var_name = f"{variable_prefix}{env_var}"
-                try:
-                    value = Variable.get(var_name)
-                    if value is not None:
-                        raw_settings[field] = value
-                except (KeyError, Exception):
-                    continue
-        except ImportError:
-            pass
-
-        # 4. Airflow Connection (prioridad más alta)
-        try:
-            from airflow.sdk.bases.hook import BaseHook
-
-            conn = BaseHook.get_connection(conn_id)
-
-            if conn.login:
-                raw_settings["username"] = conn.login
-            if conn.password:
-                raw_settings["password"] = conn.password
-
-            extras = getattr(conn, "extra_dejson", {}) or {}
-            if isinstance(extras, dict):
-                for field in _ENV_FIELD_MAP.keys():
-                    value = extras.get(field)
-                    if value is not None:
-                        raw_settings[field] = value
-        except Exception:
-            pass
+        # Construir configuración con fallback por campo
+        logger.info("🔧 Cargando configuración con fallback por campo...")
+        raw_settings = build_config_from_sources(fields_spec, sources)
 
         return _build_settings(raw_settings)
 
@@ -311,17 +337,15 @@ def load_yaml_config(
     postgres_conn_id: Optional[str] = "postgres_teleows"
 ) -> Dict[str, Any]:
     """
-    Carga configuración completa desde settings.yaml con soporte para variables de entorno
-    y Airflow Connections.
+    Carga configuración completa desde settings.yaml con FALLBACK POR CAMPO.
 
-    A diferencia de TeleowsSettings (que solo carga campos específicos del scraper),
-    esta función retorna TODO el contenido del YAML, útil para loaders que necesitan
+    PRIORIDAD para configuración PostgreSQL (campo por campo):
+    1. Airflow Connection (si un campo existe aquí, úsalo)
+    2. Variables de entorno (${POSTGRES_HOST}, etc.)
+    3. YAML (valores por defecto)
+
+    Retorna TODO el contenido del YAML, útil para loaders que necesitan
     acceder a secciones adicionales como 'postgres', 'gde', etc.
-
-    Orden de prioridad para configuración PostgreSQL:
-    1. Airflow Connection (prioridad más alta)
-    2. Variables de entorno ${POSTGRES_HOST}
-    3. Valores por defecto del YAML
 
     Args:
         env: Perfil de entorno a cargar (default, production, etc.)
@@ -333,7 +357,7 @@ def load_yaml_config(
         Diccionario con la configuración completa
 
     Example:
-        >>> # En Airflow (usa Connection automáticamente)
+        >>> # En Airflow (usa Connection con fallback a YAML/ENV por campo)
         >>> config = load_yaml_config()
         >>> postgres_config = config.get('postgres', {})
         >>>
@@ -344,8 +368,9 @@ def load_yaml_config(
     logger = logging.getLogger(__name__)
 
     try:
-        env = env or os.getenv("TELEOWS_ENV", "default")
+        env_profile = env or os.getenv("TELEOWS_ENV", "default")
 
+        # Cargar configuración base desde YAML
         if not SETTINGS_PATH.exists():
             logger.warning(f"No existe settings.yaml en {SETTINGS_PATH}, usando valores por defecto")
             config = {}
@@ -362,37 +387,55 @@ def load_yaml_config(
                 raise RuntimeError("El archivo settings.yaml debe contener un mapeo.")
 
             # Obtener la sección del perfil
-            config = raw_config.get(env, raw_config)
+            config = raw_config.get(env_profile, raw_config)
 
             if not isinstance(config, dict):
                 raise RuntimeError(
-                    f"La sección '{env}' de settings.yaml debe ser un objeto con pares clave/valor."
+                    f"La sección '{env_profile}' de settings.yaml debe ser un objeto con pares clave/valor."
                 )
 
-            # Reemplazar variables de entorno
+            # Reemplazar variables de entorno ${VAR}
             config = _replace_env_variables(config)
 
-        # Intentar sobreescribir PostgreSQL con Airflow Connection (prioridad más alta)
+        # Aplicar fallback por campo para PostgreSQL
         if postgres_conn_id:
-            try:
-                from airflow.sdk.bases.hook import BaseHook
+            postgres_fields = ["host", "port", "database", "user", "password"]
 
-                conn = BaseHook.get_connection(postgres_conn_id)
-                postgres_from_airflow = {
-                    "host": conn.host or "localhost",
-                    "port": conn.port or 5432,
-                    "database": conn.schema or "postgres",
-                    "user": conn.login or "postgres",
-                    "password": conn.password or "",
-                }
-                config["postgres"] = postgres_from_airflow
-                logger.info(f"✓ Configuración PostgreSQL cargada desde Airflow Connection '{postgres_conn_id}'")
-            except ImportError:
-                logger.debug("Airflow no disponible, usando configuración de YAML/ENV")
-            except Exception as exc:
-                logger.warning(f"No se pudo cargar Connection '{postgres_conn_id}': {exc}")
+            # Definir fuentes en orden de prioridad
+            sources = [
+                # 1. Airflow Connection (prioridad más alta)
+                ConfigSource(
+                    f"Airflow Connection ({postgres_conn_id})",
+                    lambda: load_from_airflow_connection(postgres_conn_id)
+                ),
+                # 2. YAML+ENV (ya procesado con _replace_env_variables)
+                ConfigSource(
+                    "YAML+ENV",
+                    lambda: config.get("postgres", {})
+                ),
+            ]
 
-        logger.debug(f"Configuración cargada desde perfil '{env}'")
+            # Construir configuración PostgreSQL con fallback por campo
+            postgres_from_yaml_env = config.get("postgres", {})
+            postgres_config = {}
+
+            for field in postgres_fields:
+                # Buscar en cada fuente hasta encontrar el campo
+                for source in sources:
+                    value = source.get(field)
+                    if value is not None:
+                        postgres_config[field] = value
+                        break
+                else:
+                    # Si no se encuentra, usar valor por defecto del YAML
+                    if field in postgres_from_yaml_env:
+                        postgres_config[field] = postgres_from_yaml_env[field]
+
+            if postgres_config:
+                config["postgres"] = postgres_config
+                logger.info(f"✓ PostgreSQL configurado con fallback por campo desde {postgres_conn_id}")
+
+        logger.debug(f"Configuración cargada desde perfil '{env_profile}'")
         return config
 
     except Exception as e:
