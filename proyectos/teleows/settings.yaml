@@ -30,3 +30,206 @@ default:
     local_dir: "./tmp"
     specific_filename: "Console_GDE_export.xlsx"
     sp_carga: "ods.sp_cargar_gde_tasks"  # Stored Procedure para transformar RAW → ODS
+
+  # Configuración de carga para Dynamic Checklist (47 pestañas)
+  dynamic_checklist:
+    schema: "raw"                                      # Schema destino (todas las tablas)
+    if_exists: "replace"                               # Estrategia de carga por defecto
+    chunksize: 10000                                   # Tamaño de chunk para carga
+    local_dir: "./tmp"
+    specific_filename: "DynamicChecklist_SubPM.xlsx"  # Archivo Excel con 47 pestañas
+
+    # Configuración de pestañas del Excel
+    # Cada entrada define:
+    #   - sheet_name: Nombre de la pestaña en Excel (debe coincidir exactamente)
+    #   - table: Nombre de la tabla RAW (sin schema, se usa el schema de arriba)
+    #   - sp_carga: (Opcional) Stored Procedure para transformar RAW → ODS
+    #   - if_exists: (Opcional) Sobreescribe el comportamiento global
+    sheets:
+      - sheet_name: "avr"
+        table: "dc_avr"
+        sp_carga: "ods.sp_cargar_dc_avr"
+
+      - sheet_name: "cf_banco_de_baterias"
+        table: "dc_cf_banco_de_baterias"
+        sp_carga: "ods.sp_cargar_dc_cf_banco_de_baterias"
+
+      - sheet_name: "cf_bastidor_distribucion"
+        table: "dc_cf_bastidor_distribucion"
+        sp_carga: "ods.sp_cargar_dc_cf_bastidor_distribucion"
+
+      - sheet_name: "cf_cuadro_de_fuerza"
+        table: "dc_cf_cuadro_de_fuerza"
+        sp_carga: "ods.sp_cargar_dc_cf_cuadro_de_fuerza"
+
+      - sheet_name: "cf_modulos_rectificadores"
+        table: "dc_cf_modulos_rectificadores"
+        sp_carga: "ods.sp_cargar_dc_cf_modulos_rectificadores"
+
+      - sheet_name: "cf_tablero_ac_de_cuadro_de_fu"
+        table: "dc_cf_tablero_ac_cuadro_fu"
+        sp_carga: "ods.sp_cargar_dc_cf_tablero_ac_cuadro_fu"
+
+      - sheet_name: "cf_descarga_controlada_bater"
+        table: "dc_cf_descarga_controlada_bater"
+        sp_carga: "ods.sp_cargar_dc_cf_descarga_controlada_bater"
+
+      - sheet_name: "clima_condensador"
+        table: "dc_clima_condensador"
+        sp_carga: "ods.sp_cargar_dc_clima_condensador"
+
+      - sheet_name: "clima_evaporador"
+        table: "dc_clima_evaporador"
+        sp_carga: "ods.sp_cargar_dc_clima_evaporador"
+
+      - sheet_name: "clima"
+        table: "dc_clima"
+        sp_carga: "ods.sp_cargar_dc_clima"
+
+      - sheet_name: "ge_grupo_electrogeno"
+        table: "dc_ge_grupo_electrogeno"
+        sp_carga: "ods.sp_cargar_dc_ge_grupo_electrogeno"
+
+      - sheet_name: "ge_info_general_de_tanque"
+        table: "dc_ge_info_general_tanque"
+        sp_carga: "ods.sp_cargar_dc_ge_info_general_tanque"
+
+      - sheet_name: "ge_tablero_de_transferencia_a"
+        table: "dc_ge_tablero_transferencia"
+        sp_carga: "ods.sp_cargar_dc_ge_tablero_transferencia"
+
+      - sheet_name: "ge_limp_interna_tk"
+        table: "dc_ge_limp_interna_tk"
+        sp_carga: "ods.sp_cargar_dc_ge_limp_interna_tk"
+
+      - sheet_name: "ge_transferencia_con_carga"
+        table: "dc_ge_transferencia_con_carga"
+        sp_carga: "ods.sp_cargar_dc_ge_transferencia_con_carga"
+
+      - sheet_name: "ie_datos_spat_general"
+        table: "dc_ie_datos_spat_general"
+        sp_carga: "ods.sp_cargar_dc_ie_datos_spat_general"
+
+      - sheet_name: "ie_mantenimiento_pozo_por_poz"
+        table: "dc_ie_mantenimiento_pozo"
+        sp_carga: "ods.sp_cargar_dc_ie_mantenimiento_pozo"
+
+      - sheet_name: "ie_suministro_de_energia"
+        table: "dc_ie_suministro_energia"
+        sp_carga: "ods.sp_cargar_dc_ie_suministro_energia"
+
+      - sheet_name: "ie_tablero_principal"
+        table: "dc_ie_tablero_principal"
+        sp_carga: "ods.sp_cargar_dc_ie_tablero_principal"
+
+      - sheet_name: "ie_tablero_secundario"
+        table: "dc_ie_tablero_secundario"
+        sp_carga: "ods.sp_cargar_dc_ie_tablero_secundario"
+
+      - sheet_name: "inversor"
+        table: "dc_inversor"
+        sp_carga: "ods.sp_cargar_dc_inversor"
+
+      - sheet_name: "lmt_lbt_conductores_y_protecc"
+        table: "dc_lmt_lbt_conductores_protecc"
+        sp_carga: "ods.sp_cargar_dc_lmt_lbt_conductores_protecc"
+
+      - sheet_name: "lmt_lbt_datos_de_linea_genera"
+        table: "dc_lmt_lbt_datos_linea_general"
+        sp_carga: "ods.sp_cargar_dc_lmt_lbt_datos_linea_general"
+
+      - sheet_name: "lmt_lbt_poste_de_cada_uno"
+        table: "dc_lmt_lbt_poste_cada_uno"
+        sp_carga: "ods.sp_cargar_dc_lmt_lbt_poste_cada_uno"
+
+      - sheet_name: "mantenimiento_preventivo_dinami"
+        table: "dc_mantenimiento_preventivo_dinami"
+        sp_carga: "ods.sp_cargar_dc_mantenimiento_preventivo_dinami"
+
+      - sheet_name: "mantenimiento_preventivo"
+        table: "dc_mantenimiento_preventivo"
+        sp_carga: "ods.sp_cargar_dc_mantenimiento_preventivo"
+
+      - sheet_name: "radio_6_12_18_bas_cf_bb"
+        table: "dc_radio_6_12_18_bas_cf_bb"
+        sp_carga: "ods.sp_cargar_dc_radio_6_12_18_bas_cf_bb"
+
+      - sheet_name: "radio_6_12_18_bbu"
+        table: "dc_radio_6_12_18_bbu"
+        sp_carga: "ods.sp_cargar_dc_radio_6_12_18_bbu"
+
+      - sheet_name: "se_banco_de_condensadores"
+        table: "dc_se_banco_condensadores"
+        sp_carga: "ods.sp_cargar_dc_se_banco_condensadores"
+
+      - sheet_name: "se_proteccion_y_pararrayos"
+        table: "dc_se_proteccion_pararrayos"
+        sp_carga: "ods.sp_cargar_dc_se_proteccion_pararrayos"
+
+      - sheet_name: "se_tablero_de_paso_de_salida"
+        table: "dc_se_tablero_paso_salida"
+        sp_carga: "ods.sp_cargar_dc_se_tablero_paso_salida"
+
+      - sheet_name: "se_trafomix"
+        table: "dc_se_trafomix"
+        sp_carga: "ods.sp_cargar_dc_se_trafomix"
+
+      - sheet_name: "se_transformador_de_potencia"
+        table: "dc_se_transformador_potencia"
+        sp_carga: "ods.sp_cargar_dc_se_transformador_potencia"
+
+      - sheet_name: "sol_banco_de_baterias_solares"
+        table: "dc_sol_banco_baterias_solares"
+        sp_carga: "ods.sp_cargar_dc_sol_banco_baterias_solares"
+
+      - sheet_name: "sol_controlador_solar"
+        table: "dc_sol_controlador_solar"
+        sp_carga: "ods.sp_cargar_dc_sol_controlador_solar"
+
+      - sheet_name: "sol_informacion_general_sist"
+        table: "dc_sol_informacion_general_sist"
+        sp_carga: "ods.sp_cargar_dc_sol_informacion_general_sist"
+
+      - sheet_name: "sol_paneles_solares"
+        table: "dc_sol_paneles_solares"
+        sp_carga: "ods.sp_cargar_dc_sol_paneles_solares"
+
+      - sheet_name: "tx_bh_2_4_6_12_gwc"
+        table: "dc_tx_bh_2_4_6_12_gwc"
+        sp_carga: "ods.sp_cargar_dc_tx_bh_2_4_6_12_gwc"
+
+      - sheet_name: "tx_bh_2_4_6_12_gwd"
+        table: "dc_tx_bh_2_4_6_12_gwd"
+        sp_carga: "ods.sp_cargar_dc_tx_bh_2_4_6_12_gwd"
+
+      - sheet_name: "tx_bh_2_4_6_12_gwt"
+        table: "dc_tx_bh_2_4_6_12_gwt"
+        sp_carga: "ods.sp_cargar_dc_tx_bh_2_4_6_12_gwt"
+
+      - sheet_name: "tx_2_4_6_12_antena"
+        table: "dc_tx_2_4_6_12_antena"
+        sp_carga: "ods.sp_cargar_dc_tx_2_4_6_12_antena"
+
+      - sheet_name: "tx_2_4_6_12_dwdm"
+        table: "dc_tx_2_4_6_12_dwdm"
+        sp_carga: "ods.sp_cargar_dc_tx_2_4_6_12_dwdm"
+
+      - sheet_name: "tx_2_4_6_12_idu"
+        table: "dc_tx_2_4_6_12_idu"
+        sp_carga: "ods.sp_cargar_dc_tx_2_4_6_12_idu"
+
+      - sheet_name: "tx_2_4_6_12_odu"
+        table: "dc_tx_2_4_6_12_odu"
+        sp_carga: "ods.sp_cargar_dc_tx_2_4_6_12_odu"
+
+      - sheet_name: "tx_2_4_6_12_sdh"
+        table: "dc_tx_2_4_6_12_sdh"
+        sp_carga: "ods.sp_cargar_dc_tx_2_4_6_12_sdh"
+
+      - sheet_name: "ups_bateria_de_ups"
+        table: "dc_ups_bateria_ups"
+        sp_carga: "ods.sp_cargar_dc_ups_bateria_ups"
+
+      - sheet_name: "ups_ups"
+        table: "dc_ups_ups"
+        sp_carga: "ods.sp_cargar_dc_ups_ups"
