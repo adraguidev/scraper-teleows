@@ -105,3 +105,45 @@ clientes_libres:
   if_exists: "replace"         # 'append' | 'replace' | 'fail'
   sp_carga: "ods.sp_cargar_sftp_hm_clientes_libres"
 
+#------GDE (Integratel)-------------------------------------------
+gde:
+  download_path: "./tmp"
+  max_iframe_attempts: 60
+  max_status_attempts: 60
+  options_to_select: "CM,OPM"
+  date_mode: 2
+  date_from: "2025-09-01"
+  date_to: "2025-09-10"
+  gde_output_filename: "Console_GDE_export.xlsx"
+  export_overwrite_files: true
+  proxy: "${PROXY}"
+  headless: true
+  schema: "raw"
+  table: "gde_tasks"
+  if_exists: "replace"
+  chunksize: 10000
+  local_dir: "./tmp"
+  specific_filename: "Console_GDE_export.xlsx"
+  sp_carga: "ods.sp_cargar_gde_tasks"
+
+#------Dynamic Checklist-------------------------------------------
+dynamic_checklist:
+  download_path: "./tmp"
+  max_iframe_attempts: 60
+  max_status_attempts: 60
+  options_to_select: "CM,OPM"
+  date_mode: 2
+  date_from: "2025-09-01"
+  date_to: "2025-09-10"
+  output_filename: "DynamicChecklist_SubPM.xlsx"
+  export_overwrite_files: true
+  proxy: "${PROXY}"
+  headless: true
+  schema: "raw"
+  table: "dynamic_checklist_tasks"
+  if_exists: "replace"
+  chunksize: 10000
+  local_dir: "./tmp"
+  specific_filename: "DynamicChecklist_SubPM.xlsx"
+  sp_carga: "ods.sp_cargar_dynamic_checklist_tasks"
+

@@ -72,7 +72,7 @@ def asegurar_directorio_sftp(sftp, ruta_completa):
 
 
 def traerjson(archivo='',valor=None):
-    
+
     base_dir = Path(__file__).resolve().parent.parent
     config_path = base_dir / archivo
 
@@ -83,6 +83,47 @@ def traerjson(archivo='',valor=None):
             return datos[valor]
         else:
             return datos
+
+
+def load_json_config(archivo: str = '', valor: Optional[str] = None):
+    """
+    Carga un archivo JSON desde la carpeta config del proyecto.
+    Alias mejorado de traerjson() para compatibilidad con código de teleows.
+
+    Args:
+        archivo: Ruta relativa al archivo JSON desde la raíz del proyecto
+        valor: Clave opcional para extraer un valor específico del JSON
+
+    Returns:
+        El contenido del JSON completo o el valor específico si se proporciona una clave
+
+    Example:
+        >>> load_json_config('config/columnas/columns_map.json', 'gde_tasks')
+    """
+    base_dir = Path(__file__).resolve().parent.parent
+    config_path = base_dir / archivo
+
+    if not config_path.exists():
+        logger.error(f"No existe el archivo JSON: {config_path}")
+        raise FileNotFoundError(f"Archivo no encontrado: {config_path}")
+
+    try:
+        with open(config_path, 'r', encoding='utf-8') as file:
+            datos = json.load(file)
+
+        if valor:
+            if valor not in datos:
+                logger.error(f"Clave '{valor}' no encontrada en {archivo}")
+                raise KeyError(f"Clave '{valor}' no encontrada en el JSON")
+            return datos[valor]
+        else:
+            return datos
+    except json.JSONDecodeError as e:
+        logger.error(f"Error al parsear JSON {archivo}: {e}")
+        raise
+    except Exception as e:
+        logger.error(f"Error al cargar JSON {archivo}: {e}")
+        raise
 
 
 
