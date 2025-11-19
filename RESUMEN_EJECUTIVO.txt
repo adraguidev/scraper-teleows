@@ -1,0 +1,227 @@
+================================================================================
+RESUMEN EJECUTIVO - REVISIÓN EXHAUSTIVA DEL CODEBASE
+Proyecto: scraper-teleows
+Fecha: 2025-11-19
+================================================================================
+
+ESTADÍSTICAS GENERALES
+- Archivos revisados: 70+ (Python, YAML, JSON)
+- Hallazgos críticos: 4
+- Hallazgos altos: 5
+- Hallazgos medios: 4
+- Hallazgos bajos: 2
+
+================================================================================
+HALLAZGOS CRÍTICOS (REQUIEREN ACCIÓN INMEDIATA)
+================================================================================
+
+1. CREDENCIALES HARDCODEADAS EN ARCHIVOS YAML
+   Severidad: CRÍTICO
+   Ubicaciones:
+   - /home/user/scraper-teleows/proyectos/energiafacilities/config/config_dev.yaml
+     * Líneas 8-12: PostgreSQL (user: "siom_dev", password: "s10m#d3v")
+     * Líneas 18-21: SFTP (password: "0p3r4d0r#1")
+     * Líneas 43-47: DAAS (password: "Cv8mY8sK$5")
+     * Líneas 75-76: WebIndra (USER: "usuario.tdp", PASS: "usuario.tdp2021")
+     * Líneas 124-125: Teleows (username: "Integratel_Data", password: "Integratel1!TI")
+   
+   - /home/user/scraper-teleows/proyectos/energiafacilities/config/config_staging.yaml
+     * Mismas credenciales que config_dev
+   
+   - /home/user/scraper-teleows/proyectos/energiafacilities/config/config_prod.yaml
+     * Líneas 18-21: SFTP PROD (password: "0p3r4d0r#1") - ¡PRODUCCIÓN!
+     * Líneas 43-47: DAAS PROD (password: "Cv8mY8sK$5") - ¡PRODUCCIÓN!
+     * Líneas 75-76: WebIndra PROD - ¡PRODUCCIÓN!
+     * Líneas 124-125: Teleows PROD - ¡PRODUCCIÓN!
+   
+   Impacto: ALTO - Credenciales expuestas en repositorio
+   Acción: Mover a variables de entorno, usar .env o Airflow Connections
+
+2. CREDENCIALES EN SCRIPTS DE TEST
+   Severidad: CRÍTICO
+   Ubicación: /home/user/scraper-teleows/proyectos/test/scraper.py
+   - Línea 28: USERNAME = os.getenv("GDE_USER", "t71522450")
+   - Línea 29: PASSWORD = os.getenv("GDE_PASS", "R@fSh@yder199810")
+   
+   Problema: Fallback con credenciales reales
+   Acción: Remover fallbacks de credenciales
+
+3. URLs HARDCODEADAS
+   Severidad: CRÍTICO
+   Ubicaciones:
+   - /home/user/scraper-teleows/proyectos/test/scraper.py (líneas 216-218)
+   - /home/user/scraper-teleows/proyectos/energiafacilities/clients/auth.py (líneas 28-32)
+   
+   URLs afectadas: https://30c8-mx.teleows.com (duplicada)
+   Problema: URLs sin parametrización, difícil de cambiar entre ambientes
+   Acción: Mover a constantes y variables de entorno
+
+4. EJEMPLOS DE CÓDIGO CON CREDENCIALES MOCK
+   Severidad: CRÍTICO
+   Ubicación: /home/user/scraper-teleows/proyectos/energiafacilities/core/base_postgress.py
+   - Líneas 52-58: Ejemplo de conexión con user "admin", password "1234"
+   
+   Problema: Establece mal precedente
+   Acción: Usar placeholders o variables en ejemplos
+
+================================================================================
+HALLAZGOS ALTOS (CÓDIGO QUALITY)
+================================================================================
+
+1. CÓDIGO DUPLICADO MASIVO
+   Severidad: ALTO
+   
+   Función: robust_click / _robust_click (DUPLICADA EN 3 LUGARES)
+   - /home/user/scraper-teleows/proyectos/test/scraper.py (líneas 96-114)
+   - /home/user/scraper-teleows/proyectos/energiafacilities/sources/autin_gde/stractor.py (líneas 272-289)
+   - /home/user/scraper-teleows/proyectos/energiafacilities/clients/date_filter_manager.py (línea 452)
+   
+   Función: switch_to_frame_with / _switch_to_frame_with (DUPLICADA EN 2 LUGARES)
+   - /home/user/scraper-teleows/proyectos/test/scraper.py (líneas 62-93)
+   - /home/user/scraper-teleows/proyectos/energiafacilities/sources/autin_gde/stractor.py (líneas 292-315)
+   
+   Función: find_first (SOLO 1 LUGAR)
+   - /home/user/scraper-teleows/proyectos/test/scraper.py (líneas 117-130)
+   
+   Impacto: Difícil de mantener, cambios en múltiples lugares
+   Acción: Centralizar en módulo común (selenium_helpers.py)
+
+2. BROWSER CONFIGURATION DUPLICADA
+   Severidad: ALTO
+   Ubicaciones:
+   - /home/user/scraper-teleows/proyectos/test/scraper.py (líneas 142-164)
+   - /home/user/scraper-teleows/proyectos/energiafacilities/clients/browser.py (línea 41)
+   
+   Problema: Código idéntico con comentarios "EXACTAMENTE igual que scraper.py"
+   Acción: Extraer a constantes en browser_constants.py
+
+3. PATHS HARDCODEADOS
+   Severidad: ALTO
+   Archivos DAG afectados:
+   - DAG_test_scraper.py: /opt/airflow (4 referencias)
+   - DAG_webindra.py: /opt/airflow (2 referencias)
+   - DAG_sftp_energia.py: /opt/airflow (1 referencia)
+   - DAG_clientes_libres.py: /opt/airflow (2 referencias)
+   - DAG_dynamic_checklist.py: /opt/airflow (1 referencia)
+   - helpers.py: /opt/airflow (2 referencias)
+   
+   Total: 12+ referencias a /opt/airflow hardcodeadas
+   Problema: Cambios en estructura requieren editar múltiples archivos
+   Acción: Crear path_config.py con detección dinámica
+
+4. NÚMEROS MÁGICOS SIN CONSTANTES
+   Severidad: ALTO
+   
+   Sleep/timeout values en scraper.py:
+   - 0.2, 0.3, 0.5, 1.0, 2.0, 3.0, 10.0 segundos (sin patrón claro)
+   - max_intentosf = 120 (¿por qué 120?)
+   - max_intentosC = 60 (¿por qué 60?)
+   - timeout = 60 (¿por qué 60?)
+   
+   WebDriverWait timeouts inconsistentes:
+   - browser.py: 20 segundos
+   - auth.py: 60 segundos
+   - selenium_utils.py: 8 segundos
+   - autin_gde/stractor.py: 3, 5, 12, 15 segundos
+   
+   Acción: Crear timing_constants.py con documentación
+
+5. PROXIES HARDCODEADOS
+   Severidad: ALTO
+   Ubicaciones:
+   - config_dev.yaml: "telefonica01.gp.inet:8080"
+   - config_staging.yaml: "telefonica01.gp.inet:8080"
+   - config_prod.yaml: "telefonica01.gp.inet:8080"
+   - scraper.py: "telefonica01.gp.inet:8080"
+   
+   Problema: Mismo proxy en todos los ambientes, hardcodeado
+   Acción: Mover a variables de entorno por ambiente
+
+================================================================================
+HALLAZGOS MEDIOS (MANTENIBILIDAD)
+================================================================================
+
+1. INCONSISTENCIA EN NOMBRES DE CONFIGURACIÓN
+   - teleows.proxy vs webindra_energia.PROXY vs (sftp sin proxy)
+   - Nombres en upper vs lowercase inconsistentes
+   
+2. XPATHS DUPLICADOS
+   - '//*[@id="allTask_tab"]/form/div[2]/div/div/div[2]/button[2]'
+     aparece en scraper.py (línea 447) y autin_gde/stractor.py (línea 330)
+   
+3. DOS SISTEMAS DE LOGIN
+   - Función: do_login_robusto() en scraper.py (antigua)
+   - Clase: AuthManager en clients/auth.py (nueva, mejorada)
+   
+4. COMENTARIOS DE CÓDIGO DUPLICADO
+   - Múltiples referencias "Igual que scraper.py línea XXX"
+   - Indica cambio de refactorización incompleta
+
+================================================================================
+HALLAZGOS BAJOS (BEST PRACTICES)
+================================================================================
+
+1. EJEMPLOS DE CÓDIGO CON CREDENCIALES MOCK
+   - base_postgress.py docstring con ejemplo de credenciales
+
+2. FALTA DE DOCUMENTACIÓN CLARA
+   - Valor de intentos/timeouts no documentados
+
+================================================================================
+RECOMENDACIONES PRIORIZADAS
+================================================================================
+
+FASE 1 - SEGURIDAD (2-4 horas)
+[ ] Remover credenciales de todos los YAML
+[ ] Crear .env con variables seguras (no commitear)
+[ ] Actualizar .gitignore
+[ ] Implementar interpolación de variables en load_config()
+
+FASE 2 - CÓDIGO DUPLICADO (4-6 horas)
+[ ] Crear selenium_helpers.py (robust_click, switch_to_frame_with, find_first)
+[ ] Crear browser_constants.py (argumentos Chrome, preferencias)
+[ ] Actualizar archivos para usar módulos centralizados
+[ ] Unificar login con AuthManager
+
+FASE 3 - CONFIGURACIÓN (4-6 horas)
+[ ] Crear timing_constants.py (delays, waits, timeouts)
+[ ] Crear path_config.py (detección de rutas dinámicas)
+[ ] Crear portal_constants.py (URLs de portales)
+[ ] Actualizar DAGs para usar path_config.py
+
+FASE 4 - VALIDACIÓN (4-8 horas)
+[ ] Ejecutar tests
+[ ] Validar ausencia de credenciales
+[ ] Documentar cambios
+[ ] Code review
+
+================================================================================
+DOCUMENTACIÓN GENERADA
+================================================================================
+
+Se han creado 2 archivos con detalles completos:
+
+1. REVISION_CODEBASE_INFORME.md (14 KB)
+   - Informe detallado de todos los hallazgos
+   - Tablas con ubicaciones exactas
+   - Ejemplos de código problemático
+
+2. REVISION_CODEBASE_RECOMENDACIONES.md (19 KB)
+   - Soluciones paso a paso
+   - Código de ejemplo para remedios
+   - Plan de implementación
+   - Checklist de validación
+
+Ubicación: /home/user/scraper-teleows/
+
+================================================================================
+PRÓXIMOS PASOS
+================================================================================
+
+1. REVISAR documentos generados
+2. PRIORIZAR acciones según timeline del proyecto
+3. CONTACTAR con equipo de seguridad si hay acceso a repos públicos
+4. INICIAR FASE 1 (Seguridad) de inmediato
+5. PLANIFICAR FASES 2-4 en el roadmap
+
+================================================================================
