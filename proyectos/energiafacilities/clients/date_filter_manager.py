@@ -4,6 +4,9 @@ DateFilterManager: maneja la aplicación de filtros de fecha en workflows de scr
 Proporciona métodos para aplicar filtros de fecha usando diferentes estrategias:
 - Radio buttons para rangos predefinidos (último mes)
 - Inputs de fecha manuales usando Create Time (botón +, inputs DESDE/HASTA)
+
+REFACTORIZADO: La función _click_y_setear_fecha_y_hora fue dividida en métodos auxiliares
+para mejorar legibilidad y mantenibilidad sin cambiar el comportamiento.
 """
 
 from __future__ import annotations
@@ -48,12 +51,12 @@ class DateFilterManager:
 
         - date_mode=1 → aplica fechas manuales usando Create Time (botón +, inputs DESDE/HASTA)
         - date_mode=2 o default → selecciona el radio button "Último mes"
-        
+
         Args:
             settings: Objeto con atributos date_mode, last_n_days, date_from, date_to
         """
         date_mode = getattr(settings, 'date_mode', 2)
-        
+
         if date_mode == 1:
             # Calcular fechas dinámicamente si last_n_days está configurado
             last_n_days = getattr(settings, 'last_n_days', None)
@@ -86,7 +89,7 @@ class DateFilterManager:
         """
         Aplica fechas usando Create Time: replica exactamente la lógica de scraper.py.
         Establece fecha y hora para DESDE, luego fecha y hora para HASTA.
-        
+
         Args:
             date_from_str: Fecha inicial en formato 'YYYY-MM-DD'
             date_to_str: Fecha final en formato 'YYYY-MM-DD'
@@ -95,15 +98,15 @@ class DateFilterManager:
             # Horas por defecto (igual que scraper.py)
             hora_desde = "00:00:00"
             hora_hasta = "23:59:59"
-            
-            logger.debug("Aplicando fechas manuales: DESDE %s %s → HASTA %s %s", 
+
+            logger.debug("Aplicando fechas manuales: DESDE %s %s → HASTA %s %s",
                          date_from_str, hora_desde, date_to_str, hora_hasta)
 
             # === DESDE ===
             logger.debug("Iniciando escritura de fecha DESDE: %s %s", date_from_str, hora_desde)
             self._click_y_setear_fecha_y_hora(
-                CREATETIME_FROM_CONTAINER_XPATH, 
-                date_from_str, 
+                CREATETIME_FROM_CONTAINER_XPATH,
+                date_from_str,
                 hora_desde
             )
             logger.debug("Fecha DESDE aplicada: %s %s", date_from_str, hora_desde)
@@ -128,14 +131,14 @@ class DateFilterManager:
             # === HASTA ===
             logger.debug("Iniciando escritura de fecha HASTA: %s %s", date_to_str, hora_hasta)
             self._click_y_setear_fecha_y_hora(
-                CREATETIME_TO_CONTAINER_XPATH, 
-                date_to_str, 
+                CREATETIME_TO_CONTAINER_XPATH,
+                date_to_str,
                 hora_hasta
             )
             logger.debug("Fecha HASTA aplicada: %s %s", date_to_str, hora_hasta)
             sleep(1)  # Igual que scraper.py línea 581: time.sleep(1)
 
-            logger.debug("Fechas aplicadas exitosamente: %s %s → %s %s", 
+            logger.debug("Fechas aplicadas exitosamente: %s %s → %s %s",
                        date_from_str, hora_desde, date_to_str, hora_hasta)
         except Exception as e:
             logger.warning("Error al aplicar fechas manuales: %s, usando fallback a 'Último mes'", e)
@@ -143,35 +146,57 @@ class DateFilterManager:
 
     def _click_y_setear_fecha_y_hora(self, container_xpath: str, fecha: str, hora: str) -> None:
         """
-        Replica exactamente la lógica de scraper.py para establecer fecha y hora en el selector.
-        Primero establece la fecha, luego la hora, ambos con sus respectivos inputs.
-        
+        Establece fecha y hora en el selector (versión refactorizada).
+
+        Dividida en métodos auxiliares para mejor legibilidad:
+        - _find_create_time_row(): Busca el row de Create time
+        - _open_custom_interval_mode(): Abre modo personalizado
+        - _find_input_base(): Encuentra input según DESDE/HASTA
+        - _close_open_poppers(): Cierra poppers abiertos
+        - _wait_for_picker_visible(): Espera popper visible
+        - _write_date_to_picker(): Escribe fecha
+        - _write_time_to_picker(): Escribe hora
+        - _ensure_picker_closed(): Cierra popper
+
         Args:
-            container_xpath: XPATH del contenedor (DESDE o HASTA) - usado como fallback
-            fecha: Fecha en formato string (YYYY-MM-DD)
-            hora: Hora en formato string (HH:MM:SS)
-            
-        Raises:
-            RuntimeError: Si no se encuentra el input de fecha o hora, o no se puede escribir
+            container_xpath: XPATH del contenedor (DESDE o HASTA)
+            fecha: Fecha en formato YYYY-MM-DD
+            hora: Hora en formato HH:MM:SS
         """
-        # 1) Buscar el row de Create time específicamente (no Complete time)
-        create_time_row = None
+        # 1) Buscar y preparar elementos
+        create_time_row = self._find_create_time_row()
+        self._open_custom_interval_mode(create_time_row)
+        input_base = self._find_input_base(create_time_row, container_xpath)
+
+        # 2) Preparar y abrir el popper
+        self._close_open_poppers()
+        self._robust_click_element(input_base)
+        sleep(1)
+
+        # 3) Esperar y escribir fecha/hora
+        picker = self._wait_for_picker_visible()
+        self._write_date_to_picker(picker, fecha)
+        self._write_time_to_picker(picker, hora)
+
+        # 4) Cerrar el popper
+        self._ensure_picker_closed(picker)
+        sleep(0.5)
+
+    def _find_create_time_row(self) -> WebElement:
+        """Busca el row de Create time en los filtros."""
         try:
             all_rows = self.driver.find_elements(By.CSS_SELECTOR, '.el-row.ows_filter_row, .ows_filter_row')
             for row in all_rows:
                 row_text = row.text or ""
                 if "Create time" in row_text or "Create Time" in row_text:
-                    create_time_row = row
-                    break
+                    return row
         except Exception:
             pass
+        raise RuntimeError("No se encontró el row de Create time.")
 
-        if create_time_row is None:
-            raise RuntimeError("No se encontró el row de Create time.")
-
-        # 2) Intenta abrir el modo "intervalo personalizado" con el botón + dentro de Create time
+    def _open_custom_interval_mode(self, create_time_row: WebElement) -> None:
+        """Intenta abrir el modo intervalo personalizado con el botón +."""
         try:
-            # Buscar el botón + específicamente dentro del row de Create time
             plus = create_time_row.find_element(
                 By.CSS_SELECTOR,
                 ".ows_datetime_interval_customer_text.el-icon-circle-plus"
@@ -180,49 +205,46 @@ class DateFilterManager:
                 self._robust_click_element(plus)
                 sleep(1)
         except Exception:
-            # Si no existe el botón + (ya está abierto con el-icon-remove), continuar
+            # Si no existe el botón + (ya está abierto), continuar
             pass
 
-        # 3) Buscar el contenedor de fechas personalizadas dentro de Create time y el input base
-        input_base = None
+    def _find_input_base(self, create_time_row: WebElement, container_xpath: str) -> WebElement:
+        """Encuentra el input base (DESDE o HASTA) según el xpath."""
         try:
-            # Buscar el contenedor específicamente dentro del row de Create time
             customer_container = create_time_row.find_element(
                 By.CSS_SELECTOR,
                 ".ows_datetime_interval_customer"
             )
-            # Buscar el input DESDE (primero) o HASTA (segundo) según el container_xpath
-            # Verificar el ÚLTIMO div del XPath, no si contiene div[1] en cualquier parte
             inputs = customer_container.find_elements(By.CSS_SELECTOR, 'input.el-input__inner')
-            # El XPath termina en div[1] para DESDE o div[2] para HASTA
+
+            # Determinar si es DESDE (div[1]) o HASTA (div[2])
             if container_xpath.endswith("div[1]"):
-                # Es DESDE (primer input)
                 input_base = inputs[0] if len(inputs) > 0 else None
                 logger.debug("Identificado como DESDE (primer input)")
             elif container_xpath.endswith("div[2]"):
-                # Es HASTA (segundo input)
                 input_base = inputs[1] if len(inputs) > 1 else inputs[0] if len(inputs) > 0 else None
                 logger.debug("Identificado como HASTA (segundo input)")
             else:
-                # Fallback: usar el primer input
                 input_base = inputs[0] if len(inputs) > 0 else None
                 logger.warning(f"No se pudo identificar DESDE/HASTA del XPath: {container_xpath}")
+
+            if input_base:
+                return input_base
         except Exception:
-            # Fallback: usar XPath original
-            try:
-                cont = self.wait.until(
-                    EC.element_to_be_clickable((By.XPATH, container_xpath))
-                )
-                input_base = cont.find_element(By.CSS_SELECTOR, 'input.el-input__inner')
-            except Exception:
-                pass
+            pass
 
-        if input_base is None:
-            raise RuntimeError("No se encontró el input base para fecha/hora.")
-
-        # 4) Cerrar cualquier popper abierto antes de abrir uno nuevo
+        # Fallback: usar XPath original
         try:
-            # Cerrar poppers abiertos presionando ESC o click fuera
+            cont = self.wait.until(EC.element_to_be_clickable((By.XPATH, container_xpath)))
+            return cont.find_element(By.CSS_SELECTOR, 'input.el-input__inner')
+        except Exception:
+            pass
+
+        raise RuntimeError("No se encontró el input base para fecha/hora.")
+
+    def _close_open_poppers(self) -> None:
+        """Cierra cualquier popper abierto antes de abrir uno nuevo."""
+        try:
             open_pickers = self.driver.find_elements(
                 By.CSS_SELECTOR,
                 '.el-picker-panel.el-date-picker.has-time'
@@ -230,20 +252,15 @@ class DateFilterManager:
             for picker in open_pickers:
                 style = picker.get_attribute('style') or ''
                 if 'display: none' not in style and picker.is_displayed():
-                    # Cerrar el popper presionando ESC
                     self.driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.ESCAPE)
                     sleep(0.3)
                     break
         except Exception:
             pass
 
-        # 5) Hacer click en el input base para abrir el popper
-        self._robust_click_element(input_base)
-        sleep(1)
-
-        # 6) Esperar a que el popper sea visible (el que tiene has-time y no tiene display: none)
-        picker = None
-        for _ in range(30):  # Esperar hasta 3 segundos (30 * 0.1s)
+    def _wait_for_picker_visible(self) -> WebElement:
+        """Espera a que el popper de fecha/hora sea visible."""
+        for _ in range(30):  # Esperar hasta 3 segundos
             try:
                 all_pickers = self.driver.find_elements(
                     By.CSS_SELECTOR,
@@ -252,74 +269,68 @@ class DateFilterManager:
                 for p in all_pickers:
                     style = p.get_attribute('style') or ''
                     if p.is_displayed() and 'display: none' not in style:
-                        # Verificar que tenga los inputs que necesitamos
+                        # Verificar que tenga los inputs necesarios
                         fecha_inputs = p.find_elements(
                             By.CSS_SELECTOR,
                             'input[placeholder="Seleccionar fecha"]'
                         )
                         if len(fecha_inputs) > 0:
-                            picker = p
-                            break
-                if picker:
-                    break
+                            return p
             except Exception:
                 pass
             sleep(0.1)
 
-        if picker is None:
-            raise RuntimeError("El popper de fecha no se hizo visible después de hacer click.")
+        raise RuntimeError("El popper de fecha no se hizo visible después de hacer click.")
 
-        # 7) Buscar input "Seleccionar fecha" dentro del popper visible
-        target = None
+    def _write_date_to_picker(self, picker: WebElement, fecha: str) -> None:
+        """Escribe la fecha en el input del popper."""
+        # Buscar input de fecha
         try:
             inputs_fecha = picker.find_elements(
                 By.CSS_SELECTOR,
                 'input.el-input__inner[placeholder="Seleccionar fecha"]'
             )
+            target = None
             for el in inputs_fecha:
                 if el.is_displayed() and el.is_enabled():
                     target = el
                     break
-        except Exception:
-            pass
 
-        if target is None:
-            raise RuntimeError("No se encontró el input 'Seleccionar fecha' después de abrir el selector.")
+            if target is None:
+                raise RuntimeError("No se encontró el input 'Seleccionar fecha'")
 
-        # Escribir la FECHA de forma robusta
-        try:
-            # Asegurarse de que el input esté enfocado
+            # Escribir fecha
             target.click()
             sleep(0.5)
-            # Limpiar el input
             target.send_keys(Keys.CONTROL, 'a')
             target.send_keys(Keys.DELETE)
             sleep(0.2)
-            # Escribir la fecha
             target.send_keys(fecha)
             sleep(0.3)
-            # Disparar eventos para que el framework detecte el cambio
+
+            # Disparar eventos
             self.driver.execute_script(
                 "arguments[0].dispatchEvent(new Event('input', {bubbles:true}));"
                 "arguments[0].dispatchEvent(new Event('change', {bubbles:true}));",
                 target
             )
             sleep(0.3)
-            # Presionar ENTER para confirmar la fecha
             target.send_keys(Keys.ENTER)
             sleep(0.5)
-            
-            # Verificar que la fecha se escribió correctamente
+
+            # Verificar escritura
             fecha_escrita = target.get_attribute('value') or ''
             if fecha not in fecha_escrita and fecha_escrita:
                 logger.warning(f"Fecha escrita no coincide. Esperado: {fecha}, Obtenido: {fecha_escrita}")
+
         except Exception as e:
             raise RuntimeError(f"No se pudo escribir la fecha '{fecha}': {e}")
 
-        # 8) Buscar input "Seleccionar hora" dentro del mismo popper visible
-        time_input = None
+    def _write_time_to_picker(self, picker: WebElement, hora: str) -> None:
+        """Escribe la hora en el input del popper."""
         # Esperar a que el input de hora esté disponible
-        for _ in range(20):  # Esperar hasta 2 segundos
+        time_input = None
+        for _ in range(20):
             try:
                 inputs_hora = picker.find_elements(
                     By.CSS_SELECTOR,
@@ -336,62 +347,55 @@ class DateFilterManager:
             sleep(0.1)
 
         if time_input is None:
-            raise RuntimeError("No se encontró el input 'Seleccionar hora' o no está visible.")
+            raise RuntimeError("No se encontró el input 'Seleccionar hora'")
 
         try:
-            # Hacer scroll y click en el input de hora (igual que scraper.py línea 550)
+            # Hacer scroll y click
             self.driver.execute_script(
                 "arguments[0].scrollIntoView({block: 'center'});", time_input
             )
             sleep(0.2)
             time_input.click()
-            sleep(0.5)  # Igual que scraper.py línea 551
-            
-            # Limpiar el input de forma más agresiva (la hora actual puede estar pre-llenada)
-            # Intentar borrar múltiples veces para asegurar que se borre la hora por defecto
+            sleep(0.5)
+
+            # Limpiar input de forma agresiva
             for _ in range(3):
                 time_input.send_keys(Keys.CONTROL, 'a')
                 time_input.send_keys(Keys.DELETE)
-                # También intentar con COMMAND en Mac
                 try:
                     time_input.send_keys(Keys.COMMAND, 'a')
                     time_input.send_keys(Keys.DELETE)
                 except Exception:
                     pass
                 sleep(0.1)
-            
-            # Verificar que esté vacío antes de escribir (usar JavaScript si es necesario)
+
+            # Limpiar con JavaScript si es necesario
             valor_antes = time_input.get_attribute('value') or ''
             if valor_antes:
-                # Si aún tiene valor, usar JavaScript para limpiarlo directamente
                 self.driver.execute_script("arguments[0].value = '';", time_input)
                 sleep(0.2)
-            
-            # Escribir la hora completa HH:MM:SS (igual que scraper.py línea 554)
-            # scraper.py escribe la hora completa, no solo HH:MM
+
+            # Escribir hora
             time_input.send_keys(hora)
             sleep(0.3)
-            
-            # Disparar eventos (igual que scraper.py línea 555-559)
+
+            # Disparar eventos
             self.driver.execute_script(
                 "arguments[0].dispatchEvent(new Event('input', {bubbles:true}));"
                 "arguments[0].dispatchEvent(new Event('change', {bubbles:true}));",
                 time_input
             )
             sleep(0.3)
-            
-            # Presionar ENTER (igual que scraper.py línea 560)
             time_input.send_keys(Keys.ENTER)
-            sleep(1)  # Igual que scraper.py línea 561: time.sleep(1)
-            
-            # Verificar que la hora se escribió
+            sleep(1)
+
+            # Verificar escritura
             hora_escrita = time_input.get_attribute('value') or ''
             logger.debug(f"Hora escrita: {hora_escrita}")
-            
-            # Si la hora no se aplicó correctamente, intentar confirmar con el botón del time panel
+
+            # Fallback: botón confirmar del time panel
             if hora not in hora_escrita and hora_escrita:
                 try:
-                    # Buscar el botón "Confirmar" del time panel si está visible
                     time_panel = picker.find_element(By.CSS_SELECTOR, '.el-time-panel')
                     if time_panel and time_panel.is_displayed():
                         confirm_btn = time_panel.find_element(
@@ -403,12 +407,14 @@ class DateFilterManager:
                             sleep(0.5)
                 except Exception:
                     pass
+
         except Exception as e:
             raise RuntimeError(f"No se pudo escribir la hora '{hora}': {e}")
 
-        # 9) Cerrar el popper de forma más agresiva
+    def _ensure_picker_closed(self, picker: WebElement) -> None:
+        """Asegura que el popper se cierre correctamente."""
+        # Intentar botón confirmar
         try:
-            # Intentar encontrar y presionar el botón "Confirmar"
             confirm_buttons = picker.find_elements(
                 By.CSS_SELECTOR,
                 'button.el-picker-panel__link-btn'
@@ -421,11 +427,10 @@ class DateFilterManager:
                     break
         except Exception:
             pass
-        
-        # Asegurarse de que el popper se cierre (múltiples intentos)
+
+        # Múltiples intentos de cierre con ESC
         for _ in range(3):
             try:
-                # Verificar si el popper sigue abierto
                 open_pickers = self.driver.find_elements(
                     By.CSS_SELECTOR,
                     '.el-picker-panel.el-date-picker.has-time'
@@ -436,18 +441,14 @@ class DateFilterManager:
                     if 'display: none' not in style and p.is_displayed():
                         still_open = True
                         break
-                
+
                 if still_open:
-                    # Presionar ESC
                     self.driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.ESCAPE)
                     sleep(0.3)
                 else:
                     break
             except Exception:
                 break
-        
-        # Esperar un poco más para asegurar que el popper se cerró completamente
-        sleep(0.5)
 
     def _robust_click_element(self, element: WebElement) -> bool:
         """
