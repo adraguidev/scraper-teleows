@@ -1,11 +1,21 @@
-from os import replace
 from core.base_loader import BaseLoaderPostgres
 from core.utils import load_config, setup_logging
 
 setup_logging(level="INFO")
 
-def load_clienteslibres(filepath="tmp/global/archivo.xlsx", modo=None,schema=None, table_name=None):
+def load_clienteslibres(filepath="tmp/global/archivo.xlsx", modo=None, schema=None, table_name=None):
+    """
+    Carga datos desde un archivo Excel a PostgreSQL.
 
+    Args:
+        filepath: Ruta del archivo Excel a cargar
+        modo: Modo de carga ('replace', 'append', 'fail')
+        schema: Schema de PostgreSQL
+        table_name: Nombre de la tabla destino
+
+    Returns:
+        Resultado de la carga
+    """
     config = load_config()
     postgres_config = config.get("postgress", {})
     general_config = {}
@@ -14,12 +24,7 @@ def load_clienteslibres(filepath="tmp/global/archivo.xlsx", modo=None,schema=Non
         configload=general_config
     )
 
-    carga=Loader.load_data(data=filepath,modo=modo,schema=schema, table_name=table_name)
+    carga = Loader.load_data(data=filepath, modo=modo, schema=schema, table_name=table_name)
     return carga
-
-'''
-filepath="tmp/sftp_clientes_libres/processed/clientes_libres.xlsx"
-load_clienteslibres(filepath=filepath, modo='replace',schema='raw', table_name='sftp_mm_clientes_libres')
-'''
 
 

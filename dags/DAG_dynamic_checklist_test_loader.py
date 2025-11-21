@@ -26,11 +26,12 @@ logger = logging.getLogger(__name__)
 default_args = {
     "owner": "adragui",
     "depends_on_past": False,
-    "start_date": datetime(2024, 10, 1),
+    "start_date": datetime(2025, 1, 1),
     "email_on_failure": False,
     "email_on_retry": False,
-    "retries": 1,
+    "retries": 3,
     "retry_delay": timedelta(minutes=5),
+    "execution_timeout": timedelta(hours=2),
 }
 
 

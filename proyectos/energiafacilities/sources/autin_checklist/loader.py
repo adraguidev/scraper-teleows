@@ -183,7 +183,9 @@ def _process_table(
             archivo="config/columnas/columns_map_checklist.json",
             valor=tabla_sql,
         )
-    except Exception:
+    except Exception as e:
+        # Si no existe mapeo para esta tabla, continuar sin columnas (se inferirán)
+        logger.debug(f"No se encontró mapeo de columnas para tabla '{tabla_sql}': {e}")
         columnas = None
 
     loader.verificar_datos(
