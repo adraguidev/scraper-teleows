@@ -1,11 +1,12 @@
 import logging
+from typing import Optional, Dict, Any
 from core.base_loader import BaseLoaderPostgres
 from core.utils import load_config
 from core.helpers import traerjson
 
 logger = logging.getLogger(__name__)
 
-def load_sftp_energia(filepath=None, table_name=None):
+def load_sftp_energia(filepath: Optional[str] = None, table_name: Optional[str] = None) -> Dict[str, Any]:
     """
     Carga datos de SFTP energía a PostgreSQL.
 
@@ -34,10 +35,10 @@ def load_sftp_energia(filepath=None, table_name=None):
     return carga
 
 
-def load_sftp_energia_DA(filepath=None):
+def load_sftp_energia_DA(filepath: Optional[str] = None) -> Dict[str, Any]:
     """Carga datos de SFTP energía DA a PostgreSQL."""
     return load_sftp_energia(filepath=filepath, table_name='table_DA')
 
-def load_sftp_energia_PD(filepath=None):
+def load_sftp_energia_PD(filepath: Optional[str] = None) -> Dict[str, Any]:
     """Carga datos de SFTP energía PD a PostgreSQL."""
     return load_sftp_energia(filepath=filepath, table_name='table_PD')

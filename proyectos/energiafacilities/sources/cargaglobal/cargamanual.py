@@ -1,9 +1,15 @@
+from typing import Optional, Dict, Any
 from core.base_loader import BaseLoaderPostgres
 from core.utils import load_config, setup_logging
 
 setup_logging(level="INFO")
 
-def load_clienteslibres(filepath="tmp/global/archivo.xlsx", modo=None, schema=None, table_name=None):
+def load_clienteslibres(
+    filepath: str = "tmp/global/archivo.xlsx",
+    modo: Optional[str] = None,
+    schema: Optional[str] = None,
+    table_name: Optional[str] = None
+) -> Dict[str, Any]:
     """
     Carga datos desde un archivo Excel a PostgreSQL.
 
